@@ -1,26 +1,27 @@
 import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { createTestApp } from './utils/test-app';
 
-describe('AppController (e2e)', () => {
+describe('App (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api');
-    await app.init();
+    app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  it('/api/health (GET)', () => {
-    return request(app.getHttpServer()).get('/api/health').expect(200);
+  it('exposes the health check without authentication', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/health')
+      .expect(200);
+
+    expect(response.body.status).toBe('ok');
+  });
+
+  it('requires authentication on routes that are not marked public', async () => {
+    await request(app.getHttpServer()).get('/api/auth/me').expect(401);
   });
 });

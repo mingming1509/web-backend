@@ -1,13 +1,14 @@
 import 'reflect-metadata';
-import { config } from 'dotenv';
+import { config as loadEnv } from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
-config();
+// The TypeORM CLI runs outside the Nest container, so env vars are loaded here.
+loadEnv();
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT ?? '5432', 10),
+  port: Number(process.env.DB_PORT ?? 5432),
   username: process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
@@ -16,6 +17,4 @@ export const dataSourceOptions: DataSourceOptions = {
   synchronize: false,
 };
 
-const dataSource = new DataSource(dataSourceOptions);
-
-export default dataSource;
+export default new DataSource(dataSourceOptions);
