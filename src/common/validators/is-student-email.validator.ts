@@ -5,8 +5,8 @@ import {
 } from 'class-validator';
 
 /**
- * The only email domain permitted to authenticate. Student accounts are issued
- * under `@usth.edu.vn`, and access is restricted strictly to that domain.
+ * The only email domain permitted to authenticate. Accounts are issued under
+ * `@usth.edu.vn`, and access is restricted strictly to that domain.
  */
 export const STUDENT_EMAIL_DOMAIN = 'usth.edu.vn';
 
@@ -15,7 +15,7 @@ const STUDENT_EMAIL_SUFFIX = `@${STUDENT_EMAIL_DOMAIN}`;
 /**
  * True only for a syntactically valid, single-`@` email whose domain is exactly
  * `usth.edu.vn` (case-insensitive). Subdomains such as `x@mail.usth.edu.vn` are
- * intentionally rejected — the rule is strict.
+ * intentionally rejected - the rule is strict.
  */
 export function isStudentEmail(value: unknown): boolean {
   if (typeof value !== 'string') {

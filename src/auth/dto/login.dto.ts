@@ -1,14 +1,15 @@
-import { Transform } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 import { IsString, MinLength } from 'class-validator';
-import { IsStudentEmail } from '../validators/is-student-email.validator';
+import { NormalizeEmail } from '../../common/decorators/normalize.decorator';
+import { IsStudentEmail } from '../../common/validators/is-student-email.validator';
 
 export class LoginDto {
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
-  )
+  @ApiProperty({ example: 'nam.tran@usth.edu.vn' })
+  @NormalizeEmail()
   @IsStudentEmail()
   email: string;
 
+  @ApiProperty({ example: 'password123', format: 'password' })
   @IsString()
   @MinLength(1)
   password: string;

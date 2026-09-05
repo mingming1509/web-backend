@@ -1,29 +1,47 @@
 import { ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import * as cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { AppConfig, appConfig } from './config';
+import { setupSwagger } from './swagger';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const config = app.get<AppConfig>(appConfig.KEY);
 
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('port', 3000);
+  app.setGlobalPrefix(config.apiPrefix);
 
-  app.setGlobalPrefix('api');
+  // Required for the session cookie to be readable by the JWT strategy.
+  app.use(cookieParser());
+  app.use(helmet());
+
+  // Trust the reverse proxy so `secure` cookies survive TLS termination.
+  if (config.isProduction) {
+    app.set('trust proxy', 1);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: { enableImplicitConversion: false },
     }),
   );
 
-  app.enableCors();
+  // Credentials must be allowed and origins explicit: a wildcard origin makes
+  // browsers drop the cookie.
+  app.enableCors({ origin: config.corsOrigins, credentials: true });
 
-  await app.listen(port);
-  // eslint-disable-next-line no-console
-  console.log(`Application is running on: http://localhost:${port}/api`);
+  if (!config.isProduction) {
+    setupSwagger(app, config.apiPrefix);
+  }
+
+  app.enableShutdownHooks();
+
+  await app.listen(config.port);
 }
 
-bootstrap();
+void bootstrap();

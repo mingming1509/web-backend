@@ -3,92 +3,64 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
 import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/enums/user-role.enum';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { PasswordService } from './services/password.service';
+import { TokenService } from './services/token.service';
 
-const BCRYPT_ROUNDS = 12;
-
-// A valid hash of a random value, compared against when no user is found so the
-// response takes the same time whether or not the account exists.
-const DUMMY_HASH = bcrypt.hashSync(
-  'no-user-timing-equalizer-placeholder',
-  BCRYPT_ROUNDS,
-);
-
-export interface JwtPayload {
-  sub: string;
-  email: string;
-}
-
-export interface AuthResult {
-  accessToken: string;
-  user: PublicUser;
-}
-
-export interface PublicUser {
-  id: string;
-  email: string;
-  fullName: string;
-  createdAt: Date;
-}
-
+/**
+ * Credential handling only. Issuing the cookie is the controller's job, which
+ * keeps this service free of HTTP objects and easy to unit test.
+ */
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly passwordService: PasswordService,
+    private readonly tokenService: TokenService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResult> {
-    const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) {
+  async register(dto: RegisterDto): Promise<AuthenticatedSession> {
+    if (await this.usersService.existsByEmail(dto.email)) {
       throw new ConflictException('An account with this email already exists');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.usersService.create({
       email: dto.email,
-      passwordHash,
+      passwordHash: await this.passwordService.hash(dto.password),
       fullName: dto.fullName,
+      role: UserRole.STUDENT,
     });
 
-    return this.buildAuthResult(user);
+    return this.createSession(user);
   }
 
-  async login(dto: LoginDto): Promise<AuthResult> {
+  async login(dto: LoginDto): Promise<AuthenticatedSession> {
     const user = await this.usersService.findByEmailWithPassword(dto.email);
+    const passwordMatches = await this.passwordService.compare(
+      dto.password,
+      user?.passwordHash,
+    );
 
-    // Compare against a stored (or dummy) hash either way to avoid leaking
-    // whether the account exists via response timing.
-    const hash = user?.passwordHash ?? DUMMY_HASH;
-    const passwordMatches = await bcrypt.compare(dto.password, hash);
-
+    // One message for both failure modes, so a caller cannot probe for
+    // registered addresses.
     if (!user || !passwordMatches) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return this.buildAuthResult(user);
+    return this.createSession(user);
   }
 
-  private async buildAuthResult(user: User): Promise<AuthResult> {
-    const payload: JwtPayload = { sub: user.id, email: user.email };
-    const accessToken = await this.jwtService.signAsync(payload);
-
-    return { accessToken, user: this.toPublicUser(user) };
+  private async createSession(user: User): Promise<AuthenticatedSession> {
+    return { user, accessToken: await this.tokenService.signAccessToken(user) };
   }
+}
 
-  private toPublicUser(user: User): PublicUser {
-    return {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      createdAt: user.createdAt,
-    };
-  }
+/** A verified user plus the token that will be written to the cookie. */
+export interface AuthenticatedSession {
+  user: User;
+  accessToken: string;
 }

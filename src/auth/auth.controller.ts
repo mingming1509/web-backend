@@ -5,32 +5,86 @@ import {
   HttpCode,
   HttpStatus,
   Post,
-  UseGuards,
+  Res,
 } from '@nestjs/common';
-import { AuthResult, AuthService, PublicUser } from './auth.service';
+import {
+  ApiConflictResponse,
+  ApiCookieAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import { Response } from 'express';
+import { StrictRateLimit } from '../throttler/decorators/strict-rate-limit.decorator';
+import { User } from '../users/entities/user.entity';
+import { UserResponseDto } from '../users/dto/user-response.dto';
+import { AuthenticatedSession, AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AuthCookieService } from './services/auth-cookie.service';
 
+/**
+ * The token never reaches the response body: it is written to an httpOnly
+ * cookie, so client code cannot read or store it. Endpoints return the user.
+ */
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authCookieService: AuthCookieService,
+  ) {}
 
+  @Public()
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<AuthResult> {
-    return this.authService.register(dto);
+  @StrictRateLimit()
+  @ApiOperation({ summary: 'Create a student account and start a session' })
+  @ApiConflictResponse({ description: 'Email already registered' })
+  async register(
+    @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<UserResponseDto> {
+    return this.issueSession(await this.authService.register(dto), response);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto): Promise<AuthResult> {
-    return this.authService.login(dto);
+  @StrictRateLimit()
+  @ApiOperation({ summary: 'Exchange credentials for a session cookie' })
+  @ApiUnauthorizedResponse({ description: 'Invalid email or password' })
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<UserResponseDto> {
+    return this.issueSession(await this.authService.login(dto), response);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiCookieAuth()
+  @ApiOperation({ summary: 'Clear the session cookie' })
+  logout(@Res({ passthrough: true }) response: Response): void {
+    this.authCookieService.clear(response);
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: PublicUser): PublicUser {
-    return user;
+  @ApiCookieAuth()
+  @ApiOperation({ summary: 'Return the authenticated user' })
+  @ApiOkResponse({ type: UserResponseDto })
+  me(@CurrentUser() user: User): UserResponseDto {
+    return UserResponseDto.fromEntity(user);
+  }
+
+  /** Shared tail of register and login: set the cookie, return the user. */
+  private issueSession(
+    { user, accessToken }: AuthenticatedSession,
+    response: Response,
+  ): UserResponseDto {
+    this.authCookieService.set(response, accessToken);
+    return UserResponseDto.fromEntity(user);
   }
 }
